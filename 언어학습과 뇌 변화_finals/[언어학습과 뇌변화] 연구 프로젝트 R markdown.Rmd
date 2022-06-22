@@ -1,0 +1,119 @@
+---
+title: "[언어학습과 뇌 변화] 기말 연구 프로젝트 자극 제작 과정"
+subtitle: "심리학과 2022020233 송지수"
+output: 
+  html_document: 
+    theme: cerulean
+    toc: true
+    toc_depth: 5
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    css: style.css
+date: "`r format(Sys.Date())`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. 데이터베이스에서 자극 추출하기
+
+## 1) 자극 제작에 필요한 R 패키지 불러오기
+
+* 데이터베이스에서 실험 자극을 추출하는 절차에 필요한 R 패키지들(tidyverse, readxl, writexl)을 불러온다. 
+
+```{r, echo = TRUE, message= TRUE}
+library(tidyverse)
+library(readxl) # 자극에 대한 사전 평정 결과 파일을 불러오기 위한 패키지.
+library(writexl) # 추출한 단어 자극을 내보내서 저장하기 위한 패키지.
+```
+
+
+## 2) MALD Database 불러오기
+
+* 실험 자극을 추출할 [MALD Database](http://mald.artsrn.ualberta.ca/) 텍스트 파일을 티블로 불러온다.
+
+
+```{r, echo = TRUE, message= TRUE}
+# 텍스트 원자료를 티블로 불러오기.
+mald <- read_delim("MALD1_ItemData.txt", delim = "\t")
+mald
+```
+
+
+## 3) 실험 자극 추출하기
+
+* 단어 자극 추출 조건
+    - 품사: 명사
+    - 로그 빈도(Zipf frequency) 2 이하
+    - 단어 음성 파일 길이: 500ms 이상, 1000ms 미만
+    - 단일 형태소 단어로 등록된 단어
+
+```{r, echo = TRUE, message= TRUE}
+expdata <- mald %>%
+  filter(IsWord == TRUE) %>% # 비단어를 제외하고, 단어인 항목만 남기기.
+  filter(POS == "Noun") %>% # 단어의 품사가 명사인 단어만 포함시키기.
+  mutate(Zipf_COCA = log10(FreqCOCA/560) + 3) %>% # 단어별 COCA 빈도를 기준으로 로그 빈도(Zipf Frequency)를 계산하여, 해당 값으로 이루어진 열(Zipf_COCA)을 추가하기.
+  filter(Zipf_COCA <= 2) %>% # 계산된 로그 빈도(Zipf_COCA) 값이 2 이하인 단어들만 남기기.
+  filter(Duration >= 500) %>% 
+  filter(Duration < 1000) %>% # 단어 음성 파일 길이가 500ms 이상, 1000ms 미만인 단어들을 선별하기. 
+  filter(NumMorphs == 1) # 데이터베이스에 단일 형태소 단어로 등록된 단어들만 남기기.
+expdata
+```
+
+
+# 2. 사전 평정 결과를 기반으로 자극 재구성하기
+
+## 1) Visual Inspection
+* 사전 평정을 진행하기에 앞서 자극에 대한 visual inspection을 진행하는 과정에서, 의미 및 형태 측면에서 둘 이상의 단어가 서로 유사성이 매우 높은 사례를 두 가지 확인하였다.
+   - frontiersman, frontiersmen: 두 단어는 동일 단어의 단수형과 복수형으로, 단수형인 frontiersman만 자극 사전 평정 목록에 포함하였다.
+   - glycerine, glycerol: 두 단어는 동일한 물질을 가리키는 동의어로, glycerine만 사전 평정 자극 목록에 포함하였다.
+   
+
+## 2) 단어 자극의 주관적 친숙도에 대한 사전 평정
+* [Google 설문지](https://forms.gle/tLFir7geV3EJGBVF8)를 이용하여, 앞선 절차를 통해 추출된 단어 자극 전체의 주관적 친숙도에 대한 평정을 진행하였다. 
+* 참가자들은 각 단어를 보고, 단어가 친숙하다고 느껴지는 정도에 대해 5점 척도로 평정하였다. (1: 매우 친숙하지 않음 - 5: 매우 친숙함)
+
+## 3) 사전 평정 결과 기반 자극 재구성
+
+```{r, echo = TRUE, message= TRUE}
+# 사전 평정 결과 엑셀 파일 불러오기.
+library(readxl)
+pre <- read_excel("pre-evaluation.xlsx")
+pre
+```
+
+* 사전 평정 결과, 친숙도 점수의 평균이 3점 이상으로 나타난 단어들은 자극 단어 목록에서 제외하였다. 
+
+```{r, echo = TRUE, message= TRUE}
+# 열 이름을 간단하게 변경하기.
+names(pre) <- c("Item","A","B","C","D","E") 
+
+# 친숙도 점수의 평균 계산하기.
+pre$familiarity <- rowMeans(pre[,c('A','B','C','D','E')])
+
+pre_eval <- pre %>%
+  filter(familiarity < 3) # 친숙도 점수 평균이 3 이상인 단어를 제외하기.
+pre_eval
+```
+
+* inner_join 함수를 이용하여 데이터베이스에서 추출하였던 단어 자료에서 사전 평정을 거친 단어들만 남긴다. 
+
+```{r, echo = TRUE, message= TRUE}
+# 데이터베이스에서 추출하였던 단어 자료와 사전 평정을 거친 단어 자료의 교집합에 속하는 단어들만 남기기.
+finaldata <- expdata %>%
+  inner_join(pre_eval, by = "Item")
+finaldata
+```
+
+* 친숙도 평정 점수가 나타난 열들을 제거한 다음, 최종적으로 선별된 자극 파일을 엑셀 형식으로 저장한다.
+
+```{r, echo = TRUE, message= TRUE}
+# 친숙도 평정 점수가 나타난 열들을 제거하기.
+stimuli_final <- finaldata[,-c(25:30)]
+stimuli_final
+
+# 최종 실험 자극 데이터 파일을 저장하기.
+write_xlsx(stimuli_final, "stimuli_final.xlsx")
+```
